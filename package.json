@@ -1,0 +1,13 @@
+{
+  "name": "ShinbPluginFileDownload",
+  "version": "0.0.1",
+  "author": "Shinb",
+  "description": "Shinb FileDownload Plugin",
+  "cordova": {
+    "id": "cn.shinb.plugins.filedownload",
+    "platforms": [
+      "ios",
+      "android"
+    ]
+  }
+}
