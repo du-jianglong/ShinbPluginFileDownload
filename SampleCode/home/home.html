@@ -1,0 +1,23 @@
+<script src="../../../../DownloadSample/src/pages/home/home.ts"></script>
+<script src="../../../../offline_tz_mweb/src/pages/home/home.ts"></script>
+<ion-header>
+  <ion-navbar>
+    <ion-title>
+      文件下载
+    </ion-title>
+  </ion-navbar>
+</ion-header>
+
+<ion-content padding>
+  <button type="button" ion-button (click)="toSecondPage()">打开第二个页面</button>
+  <button type="button" ion-button (click)="allDownloadClick()">{{isStartingDownload? "全部暂停":"全部下载"}}</button>
+  <ion-card *ngFor="let downloadFile of downloadFiles" style="padding-left: 8px;padding-right: 8px">
+    <button type="button" ion-button (click)="downloadClick(downloadFile)">{{downloadFile.isDownloadComplete ?
+      "打开":(downloadFile.isStartingDownload ? "暂停":"下载")}}
+    </button>
+    <ion-label>文件名:{{getFileName(downloadFile)}}</ion-label>
+    <ion-label>下载进度:{{downloadFile.downloadProgress}}</ion-label>
+    <ion-label>文件地址:{{downloadFile.downloadPath}}</ion-label>
+  </ion-card>
+
+</ion-content>
