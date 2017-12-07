@@ -22,6 +22,8 @@ import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.DecimalFormat;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * This class echoes a string called from JavaScript.
@@ -29,6 +31,11 @@ import java.text.DecimalFormat;
 public class ShinbPluginFileDownload extends CordovaPlugin {
 
     private static final DecimalFormat FORMAT = new DecimalFormat("0.0000");
+
+    /**
+     * 用来存放下载进度，只有应用退出或者暂停时保存进度到数据库
+     */
+    private final Map<String, Float> progressMap = new HashMap<String, Float>();
 
     @Override
     protected void pluginInitialize() {
@@ -109,31 +116,26 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
         if (TextUtils.isEmpty(url)) {
             callbackContext.error("url is null.");
         } else {
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    JSONObject messsage = new JSONObject();
+            JSONObject messsage = new JSONObject();
 
-                    try {
-                        double progress = getProgress(url);
-                        messsage.put("progress", FORMAT.format(progress));
-                        if (progress >= 1.f) {
-                            messsage.put("isComplete", true);
-                            messsage.put("isDownloading", false);
-                        } else {
-                            messsage.put("isComplete", false);
-                            messsage.put("isDownloading", DownloadManager.getInstance().isRunning(md5(url)));
-                        }
-
-                    } catch (Exception e) {
-
-                    }
-                    callbackContext.success(messsage);
+            try {
+                double progress = getTempProgress(url);
+                messsage.put("progress", FORMAT.format(progress));
+                if (progress >= 1.f) {
+                    messsage.put("isComplete", true);
+                    messsage.put("isDownloading", false);
+                } else {
+                    messsage.put("isComplete", false);
+                    messsage.put("isDownloading", DownloadManager.getInstance().isRunning(md5(url)));
                 }
-            }).start();
 
+            } catch (Exception e) {
+
+            }
+            callbackContext.success(messsage);
         }
     }
+
 
     /**
      * 取消单个下载
@@ -204,32 +206,60 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
 
             @Override
             public void onProgress(long finished, long total, int progress) {
-                ShinbPluginFileDownload.this.saveProgress(url, Float.parseFloat(finished + "") / total);
-
-                Log.i("onProgress", Float.parseFloat(finished + "") / total + "");
+                ShinbPluginFileDownload.this.putTempProgress(url, Float.parseFloat(finished + "") / total);
+                //Log.i("onProgress", Float.parseFloat(finished + "") / total + "");
             }
 
             @Override
             public void onCompleted() {
-                ShinbPluginFileDownload.this.saveProgress(url, 1f);
+                ShinbPluginFileDownload.this.putTempProgress(url, 1f);
+                syncProgress();
                 Log.d("onCompleted", true + "");
             }
 
             @Override
             public void onDownloadPaused() {
-
+                syncProgress();
             }
 
             @Override
             public void onDownloadCanceled() {
-
             }
 
             @Override
             public void onFailed(DownloadException e) {
-                Log.e("onFailed", e.getErrorMessage());
+                try {
+                    Log.e("onFailed", e.getErrorMessage());
+                } catch (Exception ie) {
+                }
             }
         });
+    }
+
+    /**
+     * 保存临时进度
+     *
+     * @param url
+     * @param progress
+     */
+    private void putTempProgress(String url, float progress) {
+        progressMap.put(md5(url), progress);
+    }
+
+    /**
+     * 读取临时进度
+     *
+     * @param url
+     */
+    private float getTempProgress(String url) {
+        String key = md5(url);
+        if (progressMap.containsKey(key)) {
+            return progressMap.get(key);
+        }
+
+        float progress = getProgress(key);
+        progressMap.put(key, progress);
+        return progress;
     }
 
     /**
@@ -238,11 +268,11 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
      * @param url
      * @param progress
      */
-    private void saveProgress(String url, float progress) {
+    private void saveProgress(final String url, final float progress) {
         try {
             SharedPreferences sharedPreferences = webView.getContext().getApplicationContext().getSharedPreferences("ShinbFileDownloader", Context.MODE_PRIVATE); //私有数据
             SharedPreferences.Editor editor = sharedPreferences.edit();
-            editor.putFloat(md5(url), progress);
+            editor.putFloat(url, progress);
             editor.commit();
         } catch (Exception e) {
 
@@ -258,12 +288,25 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
     private float getProgress(String url) {
         try {
             SharedPreferences sharedPreferences = webView.getContext().getApplicationContext().getSharedPreferences("ShinbFileDownloader", Context.MODE_PRIVATE); //私有数据
-
-            return sharedPreferences.getFloat(md5(url), 0f);
+            return sharedPreferences.getFloat(url, 0f);
         } catch (Exception e) {
 
         }
         return 0f;
+    }
+
+    /**
+     * 同步progress
+     */
+    private void syncProgress() {
+        if (progressMap == null) {
+            return;
+        }
+        for (Map.Entry<String, Float> entry : progressMap.entrySet()) {
+            String key = entry.getKey();
+            Float value = entry.getValue();
+            saveProgress(key, value);
+        }
     }
 
     /**
@@ -303,6 +346,12 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
         }
 
         return hex.toString();
+    }
+
+    @Override
+    public void onPause(boolean multitasking) {
+        super.onPause(multitasking);
+        syncProgress();
     }
 
     @Override
