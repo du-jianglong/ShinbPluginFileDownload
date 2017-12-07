@@ -11,6 +11,7 @@ ShinbPluginFileDownload是一个Cordova Native插件，主要功能是实现断�
 
 **用法**
 >1.将本插件拷贝到任意目录
+
 >2.安装
   打开终端定位到项目的根目录，执行命令：
   ```
