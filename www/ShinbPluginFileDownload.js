@@ -16,6 +16,17 @@ exports.sbCancel = function (arg0, success, error) {
     exec(success, error, 'ShinbPluginFileDownload', 'sbCancel', [arg0]);
 };
 
+exports.sbCancelAndDel = function (arg0,arg1, success, error) {
+    exec(success, error, 'ShinbPluginFileDownload', 'sbCancelAndDel', [arg0,arg1]);
+}
+
 exports.sbCancelAll = function (arg0, success, error) {
     exec(success, error, 'ShinbPluginFileDownload', 'sbCancelAll', [arg0]);
 };
+exports.sbClearCache = function (arg0, success, error) {
+    exec(success, error, 'ShinbPluginFileDownload', 'sbClearCache', [arg0]);
+}
+
+exports.sbCacheSize = function (arg0, success, error) {
+    exec(success, error, 'ShinbPluginFileDownload', 'sbCacheSize', [arg0]);
+}

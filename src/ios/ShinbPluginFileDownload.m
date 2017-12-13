@@ -26,7 +26,7 @@
     if (url != nil && [url length] > 0) {
         NSMutableDictionary *dict = [NSMutableDictionary new];
         
-        float progress = [self getDownloadProgress:url];
+        float progress = [self getDownloadProgress:[self md5:url]];
         [dict setValue:[NSString stringWithFormat:@"%.4f",progress] forKey:@"progress"];
         if(progress >= 1.0f){
             [dict setValue:[NSNumber numberWithBool:YES] forKey:@"isComplete"];
@@ -54,10 +54,7 @@
     
     if (url != nil && [url length] > 0 && directory != nil && [directory length] > 0) {
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
-        if([directory hasPrefix:@"file://"]){
-            directory = [directory substringFromIndex:8];
-        }
-        [self downloadFile:url path:directory];
+        [self downloadFile:url path:[self handlerDirectory:directory]];
     } else {
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
     }
@@ -65,13 +62,37 @@
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
-#pragma mark 取消下载
+#pragma mark 暂停下载（保留已下载文件）
 -(void)sbCancel:(CDVInvokedUrlCommand*)command{
     CDVPluginResult* pluginResult = nil;
     NSString* url = [command.arguments objectAtIndex:0];
     
     if (url != nil && [url length] > 0) {
+        [self pause:url];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
+    } else {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+    }
+    
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+#pragma mark 取消下载（删除已下载文件）
+-(void)sbCancelAndDel:(CDVInvokedUrlCommand*)command{
+    CDVPluginResult* pluginResult = nil;
+    NSString* url = [command.arguments objectAtIndex:0];
+    NSString* directory = [command.arguments objectAtIndex:1];
+    
+    if (url != nil && [url length] > 0 && directory != nil && [directory length] > 0) {
         [self cancel:url];
+        
+        NSString *file = [self handlerDirectory:directory];
+        if([file hasSuffix:@"/"]){
+            file = [NSString stringWithFormat:@"%@%@",file,[self fileName:url]];
+        }else{
+            file = [NSString stringWithFormat:@"%@/%@",file,[self fileName:url]];
+        }
+        [self deleteFile:file];
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
     } else {
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
@@ -83,10 +104,136 @@
 #pragma mark 取消所有下载
 -(void)sbCancelAll:(CDVInvokedUrlCommand*)command{
     CDVPluginResult* pluginResult = nil;
-    [self cancelAll];
+    [self pauseAll];
     pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
     
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+#pragma mark 清除全部缓存
+-(void)sbClearCache:(CDVInvokedUrlCommand*)command{
+    CDVPluginResult* pluginResult = nil;
+    NSString* directory = [command.arguments objectAtIndex:0];
+    
+    if (directory != nil && [directory length] > 0) {
+        [self cancelAll];
+        [self deleteFiles:[self handlerDirectory:directory]];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
+    } else {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+    }
+    
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+#pragma mark 获取缓存大小
+-(void)sbCacheSize:(CDVInvokedUrlCommand*)command{
+    CDVPluginResult* pluginResult = nil;
+    NSString* directory = [command.arguments objectAtIndex:0];
+    
+    if (directory != nil && [directory length] > 0) {
+        NSString *cacheSize = [self getCacheFileSize:[self handlerDirectory:directory]];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:cacheSize];
+    } else {
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+    }
+    
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+#pragma mark 处理目录
+-(NSString *)handlerDirectory:(NSString *)directory{
+    if([directory hasPrefix:@"file://"]){
+        directory = [directory substringFromIndex:8];
+    }
+    return directory;
+}
+
+#pragma mark 文件名
+-(NSString *)fileName:(NSString *)url{
+    return url.lastPathComponent;
+}
+
+#pragma mark 删除文件
+-(void)deleteFile:(NSString *)path{
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    [fileManager removeItemAtPath:path error:nil];
+}
+
+#pragma 删除文件夹
+-(void)deleteFiles:(NSString *)path{
+    // 文件管理者
+    NSFileManager *mgr = [NSFileManager defaultManager];
+    // 是否为文件夹
+    BOOL isDirectory = NO;
+    // 路径是否存在
+    BOOL exists = [mgr fileExistsAtPath:path isDirectory:&isDirectory];
+    if (!exists) return;
+    if (isDirectory) { // 文件夹
+        // 获得文件夹的大小  == 获得文件夹中所有文件的总大小
+        NSDirectoryEnumerator *enumerator = [mgr enumeratorAtPath:path];
+        for (NSString *subpath in enumerator) {
+            // 全路径
+            NSString *fullSubpath = [path stringByAppendingPathComponent:subpath];
+            [mgr removeItemAtPath:fullSubpath error:nil];
+        }
+    }
+}
+
+#pragma mark 获取缓存大小
+-(NSString *)getCacheFileSize:(NSString *)directory{
+    unsigned long long size = [self fileSize:directory];
+    return [self formatFileSize:size];
+}
+
+#pragma 文件夹大小
+- (unsigned long long)fileSize:(NSString *)path{
+    // 总大小
+    unsigned long long size = 0;
+    // 文件管理者
+    NSFileManager *mgr = [NSFileManager defaultManager];
+    // 是否为文件夹
+    BOOL isDirectory = NO;
+    // 路径是否存在
+    BOOL exists = [mgr fileExistsAtPath:path isDirectory:&isDirectory];
+    if (!exists) return size;
+    if (isDirectory) { // 文件夹
+        // 获得文件夹的大小  == 获得文件夹中所有文件的总大小
+        NSDirectoryEnumerator *enumerator = [mgr enumeratorAtPath:path];
+        for (NSString *subpath in enumerator) {
+            // 全路径
+            NSString *fullSubpath = [path stringByAppendingPathComponent:subpath];
+            // 累加文件大小
+            size += [mgr attributesOfItemAtPath:fullSubpath error:nil].fileSize;
+        }
+    } else { // 文件
+        size = [mgr attributesOfItemAtPath:path error:nil].fileSize;
+    }
+    
+    return size;
+}
+
+-(NSString *)formatFileSize:(unsigned long long )size{
+    if(size <= 0){
+        return @"0 B";
+    }
+    
+    NSString *unit = @"B";
+    if(size < 1024){
+        size = size;
+        unit = @"B";
+    }else if(size < 1048576){
+        size = size / 1024;
+        unit = @"KB";
+    }else if(size < 1073741824){
+        size = size / 1048576;
+        unit = @"MB";
+    }else {
+        size = size /1073741824;
+        unit = @"GB";
+    }
+    
+    return [NSString stringWithFormat:@"%.2f%@",(float)size,unit];
 }
 
 #pragma mark下载文件
@@ -104,8 +251,8 @@
     [[TCBlobDownloadManager sharedInstance] startDownload:downloader];
 }
 
-#pragma mark 取消下载
--(void)cancelAll{
+#pragma mark 暂停所有下载(不删除文件)
+-(void)pauseAll{
     for(TCBlobDownloader *downloader in [self getDownloaderDict].allValues){
         if(downloader){
             [downloader cancelDownloadAndRemoveFile:NO];
@@ -114,12 +261,36 @@
     [[self getDownloaderDict] removeAllObjects];
 }
 
--(void)cancel:(NSString *)url{
+#pragma mark 暂停下载(不删除文件)
+-(void)pause:(NSString *)url{
     TCBlobDownloader *downloader = [self getDownloader:url];
     if(downloader){
         [downloader cancelDownloadAndRemoveFile:NO];
     }
     [[self getDownloaderDict] removeObjectForKey:[self md5:url]];
+}
+
+#pragma mark 取消所有下载(删除文件)
+-(void)cancelAll{
+    for(TCBlobDownloader *downloader in [self getDownloaderDict].allValues){
+        if(downloader){
+            [downloader cancelDownloadAndRemoveFile:YES];
+        }
+    }
+    [[self getDownloaderDict] removeAllObjects];
+    [self clearDownloadProgress];
+}
+
+#pragma mark 取消下载(删除文件)
+-(void)cancel:(NSString *)url{
+    TCBlobDownloader *downloader = [self getDownloader:url];
+    if(downloader){
+        [downloader cancelDownloadAndRemoveFile:YES];
+    }
+    
+    NSString *key = [self md5:url];
+    [[self getDownloaderDict] removeObjectForKey:key];
+    [self deleteDownloadProgress:key];
 }
 
 #pragma mark 初始化下载器字典,并存储下载字典，当前APP运行有效
@@ -142,14 +313,30 @@
 }
 
 #pragma mark 下载进度保存/读取处理
--(void)saveDownloadProgress:(NSString *)url progress:(float)progress{
+-(void)saveDownloadProgress:(NSString *)key progress:(float)progress{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    [defaults setFloat:progress forKey:[self md5:url]];
+    [defaults setFloat:progress forKey:key];
 }
 
--(float)getDownloadProgress:(NSString *)url{
+-(float)getDownloadProgress:(NSString *)key{
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    return [defaults floatForKey:[self md5:url]];
+    return [defaults floatForKey:key];
+}
+
+-(void)deleteDownloadProgress:(NSString *)key{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults removeObjectForKey:key];
+    [defaults synchronize];
+}
+
+-(void)clearDownloadProgress{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    NSDictionary *dic = [defaults dictionaryRepresentation];
+    for(id key in dic){
+        [defaults removeObjectForKey:key];
+    }
+    [defaults synchronize];
 }
 
 #pragma md5加密
@@ -169,9 +356,12 @@
 #pragma mark - TCBlobDownloader Delegate
 - (void)download:(TCBlobDownloader *)blobDownload didFinishWithSuccess:(BOOL)downloadFinished atPath:(NSString *)pathToFile{
     //下载完成
-    [self cancel:blobDownload.downloadURL.absoluteString];
-    [self saveDownloadProgress:blobDownload.downloadURL.absoluteString progress:1.f];
-    NSLog(@"url:%@",blobDownload.downloadURL.absoluteURL);
+    NSString *url = blobDownload.downloadURL.absoluteString;
+    
+    NSLog(@"url:%@",url);
+    NSString *key = [self md5:url];
+    [self pause:blobDownload.downloadURL.absoluteString];
+    [self saveDownloadProgress:key progress:1.f];
 }
 
 - (void)download:(TCBlobDownloader *)blobDownload
@@ -179,8 +369,10 @@
          onTotal:(uint64_t)totalLength
         progress:(float)progress{
     //下载进度回调
-    [self saveDownloadProgress:blobDownload.downloadURL.absoluteString progress:progress];
     //NSLog(@"url:%@,progress:%.2f",blobDownload.downloadURL.absoluteURL,progress);
+    NSString *url = blobDownload.downloadURL.absoluteString;
+    NSString *key = [self md5:url];
+    [self saveDownloadProgress:key progress:progress];
 }
 
 - (void)download:(TCBlobDownloader *)blobDownload didReceiveFirstResponse:(NSURLResponse *)response{
@@ -190,7 +382,7 @@
 
 - (void)download:(TCBlobDownloader *)blobDownload didStopWithError:(NSError *)error{
     //失败
-    [self cancel:blobDownload.downloadURL.absoluteString];
+    [self pause:blobDownload.downloadURL.absoluteString];
     NSLog(@"url:%@,error:%@",blobDownload.downloadURL.absoluteURL,error);
 }
 
