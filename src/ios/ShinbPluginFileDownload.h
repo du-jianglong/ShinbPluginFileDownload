@@ -16,6 +16,11 @@
 - (void)sbDownloadInfo:(CDVInvokedUrlCommand *)command;
 
 - (void)sbCancel:(CDVInvokedUrlCommand *)command;
+- (void)sbCancelAndDel:(CDVInvokedUrlCommand*)command;
 - (void)sbCancelAll:(CDVInvokedUrlCommand *)command;
+
+- (void)sbClearCache:(CDVInvokedUrlCommand*)command;
+- (void)sbCacheSize:(CDVInvokedUrlCommand*)command;
+- (void)sbCacheFilePath:(CDVInvokedUrlCommand*)command;
 
 @end

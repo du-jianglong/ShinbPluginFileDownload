@@ -4,6 +4,7 @@
 
 @implementation ShinbPluginFileDownload
 
+#pragma mark 示例方法
 - (void)coolMethod:(CDVInvokedUrlCommand*)command
 {
     CDVPluginResult* pluginResult = nil;
@@ -18,12 +19,34 @@
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
-#pragma mark 获取下载信息
+#pragma mark 判空
+-(BOOL)isEmpty:(NSString *)string{
+    return string == nil || [string isEqualToString:@""] || [string length] <= 0;
+}
+
+#pragma mark 下载文件
+- (void)sbDownload:(CDVInvokedUrlCommand*)command{
+    CDVPluginResult* pluginResult = nil;
+    
+    NSString *url = [command.arguments objectAtIndex:0];
+    NSString *directory = [command.arguments objectAtIndex:1];
+    
+    if([self isEmpty:url] || [self isEmpty:directory]){
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The url or directory is null."];
+    }else{
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
+        [self downloadFile:url path:[self handlerDirectory:directory]];
+    }
+    
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+#pragma mark 下载信息
 -(void)sbDownloadInfo:(CDVInvokedUrlCommand*)command{
     CDVPluginResult* pluginResult = nil;
     NSString* url = [command.arguments objectAtIndex:0];
     
-    if (url != nil && [url length] > 0) {
+    if (![self isEmpty:url]) {
         NSMutableDictionary *dict = [NSMutableDictionary new];
         
         float progress = [self getDownloadProgress:[self md5:url]];
@@ -40,23 +63,7 @@
         
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:dict];
     } else {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
-    }
-    
-    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
-}
-
-#pragma mark 下载文件
-- (void)sbDownload:(CDVInvokedUrlCommand*)command{
-    CDVPluginResult* pluginResult = nil;
-    NSString* url = [command.arguments objectAtIndex:0];
-    NSString* directory = [command.arguments objectAtIndex:1];
-    
-    if (url != nil && [url length] > 0 && directory != nil && [directory length] > 0) {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
-        [self downloadFile:url path:[self handlerDirectory:directory]];
-    } else {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The url is null."];
     }
     
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
@@ -65,13 +72,14 @@
 #pragma mark 暂停下载（保留已下载文件）
 -(void)sbCancel:(CDVInvokedUrlCommand*)command{
     CDVPluginResult* pluginResult = nil;
+    
     NSString* url = [command.arguments objectAtIndex:0];
     
-    if (url != nil && [url length] > 0) {
+    if (![self isEmpty:url]) {
         [self pause:url];
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
     } else {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The url is null."];
     }
     
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
@@ -80,22 +88,21 @@
 #pragma mark 取消下载（删除已下载文件）
 -(void)sbCancelAndDel:(CDVInvokedUrlCommand*)command{
     CDVPluginResult* pluginResult = nil;
+    
     NSString* url = [command.arguments objectAtIndex:0];
     NSString* directory = [command.arguments objectAtIndex:1];
     
-    if (url != nil && [url length] > 0 && directory != nil && [directory length] > 0) {
+    if (![self isEmpty:url] && ![self isEmpty:directory]) {
         [self cancel:url];
         
+        url = [self URLDecodedString:url];
         NSString *file = [self handlerDirectory:directory];
-        if([file hasSuffix:@"/"]){
-            file = [NSString stringWithFormat:@"%@%@",file,[self fileName:url]];
-        }else{
-            file = [NSString stringWithFormat:@"%@/%@",file,[self fileName:url]];
-        }
+        file = [self filePath:file fileName:[self fileName:url]];
         [self deleteFile:file];
+        
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
     } else {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The url or directory is null."];
     }
     
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
@@ -103,10 +110,9 @@
 
 #pragma mark 取消所有下载
 -(void)sbCancelAll:(CDVInvokedUrlCommand*)command{
-    CDVPluginResult* pluginResult = nil;
     [self pauseAll];
-    pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
     
+    CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
 }
 
@@ -115,12 +121,12 @@
     CDVPluginResult* pluginResult = nil;
     NSString* directory = [command.arguments objectAtIndex:0];
     
-    if (directory != nil && [directory length] > 0) {
+    if (![self isEmpty:directory]) {
         [self cancelAll];
         [self deleteFiles:[self handlerDirectory:directory]];
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@""];
     } else {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The directory is null."];
     }
     
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
@@ -131,14 +137,44 @@
     CDVPluginResult* pluginResult = nil;
     NSString* directory = [command.arguments objectAtIndex:0];
     
-    if (directory != nil && [directory length] > 0) {
+    if (![self isEmpty:directory]) {
         NSString *cacheSize = [self getCacheFileSize:[self handlerDirectory:directory]];
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:cacheSize];
     } else {
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR];
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The directory is null."];
     }
     
     [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+#pragma mark 获取本地文件路径
+-(void)sbCacheFilePath:(CDVInvokedUrlCommand*)command{
+    CDVPluginResult* pluginResult = nil;
+    
+    NSString *url = [command.arguments objectAtIndex:0];
+    NSString *directory = [command.arguments objectAtIndex:1];
+    
+    if(![self isEmpty:url] && ![self isEmpty:directory]){
+        url = [self URLDecodedString:url];
+        NSString *filePath = [self filePath:directory fileName:[self fileName:url]];
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        if([fileManager fileExistsAtPath:[self handlerDirectory:filePath]]){
+            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:filePath];
+        }else{
+            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The file is not exits."];
+        }
+    }else{
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"The url or directory is null."];
+    }
+    
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+#pragma mark 解码URL,存储的文件是中文名
+-(NSString*)URLDecodedString:(NSString*)str{
+    NSString *decodedString=(__bridge_transfer NSString *)CFURLCreateStringByReplacingPercentEscapesUsingEncoding(NULL, (__bridge CFStringRef)str, CFSTR(""), CFStringConvertNSStringEncodingToEncoding(NSUTF8StringEncoding));
+    
+    return decodedString;
 }
 
 #pragma mark 处理目录
@@ -151,13 +187,33 @@
 
 #pragma mark 文件名
 -(NSString *)fileName:(NSString *)url{
-    return url.lastPathComponent;
+    NSString *file = url.lastPathComponent;
+    return file;
+    //NSInteger dotIndex = [file rangeOfString:@"."].location;
+
+    //NSString *fileName = [file substringToIndex:dotIndex];
+    //NSString *fileExtension = [fileName substringFromIndex:dotIndex];
+
+    //return [NSString stringWithFormat:@"%@%@",[self md5:fileName],fileExtension];
+}
+
+#pragma mark 拼接文件路径
+-(NSString *)filePath:(NSString *)directory fileName:(NSString *)fileName{
+    NSString *path;
+    if([directory hasSuffix:@"/"]){
+        path = [NSString stringWithFormat:@"%@%@",directory,fileName];
+    }else{
+        path = [NSString stringWithFormat:@"%@/%@",directory,fileName];
+    }
+    return path;
 }
 
 #pragma mark 删除文件
 -(void)deleteFile:(NSString *)path{
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    [fileManager removeItemAtPath:path error:nil];
+    if([fileManager removeItemAtPath:path error:nil]){
+        NSLog(@"The file is deleted.");
+    }
 }
 
 #pragma 删除文件夹

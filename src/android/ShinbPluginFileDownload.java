@@ -90,10 +90,21 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
             String directory = args.getString(0);
             this.sbCacheSize(directory, callbackContext);
             return true;
+        } else if (action.equals("sbCacheFilePath")) {
+            String url = args.getString(0);
+            String directory = args.getString(1);
+            this.sbCacheFilePath(url, directory, callbackContext);
+            return true;
         }
         return false;
     }
 
+    /**
+     * 示例方法
+     *
+     * @param message
+     * @param callbackContext
+     */
     private void coolMethod(String message, CallbackContext callbackContext) {
         if (message != null && message.length() > 0) {
             callbackContext.success(message);
@@ -103,7 +114,194 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
     }
 
     /**
-     * 处理fileDirectory格式问题
+     * 下载文件
+     *
+     * @param url
+     * @param directory
+     * @param callbackContext
+     */
+    private void sbDownload(String url, String directory, CallbackContext callbackContext) {
+        if (TextUtils.isEmpty(url) || TextUtils.isEmpty(directory)) {
+            callbackContext.error("The url or fileDirectory is null.");
+            return;
+        }
+
+        callbackContext.success(url);
+        this.download(url, handleFileDirectory(directory));
+    }
+
+    /**
+     * 下载文件信息
+     *
+     * @param url
+     * @param callbackContext
+     */
+    private void sbDownloadInfo(final String url, final CallbackContext callbackContext) {
+        if (TextUtils.isEmpty(url)) {
+            callbackContext.error("The url is null.");
+            return;
+        }
+
+        cordova.getThreadPool().execute(new Runnable() {
+            public void run() {
+                JSONObject message = new JSONObject();
+
+                try {
+                    DownloadTask task = getTempProgress(url);
+
+                    double progress = null == task ? 0 : task.getProgress();
+                    message.put("progress", FORMAT.format(progress));
+                    if (progress >= 1.f) {
+                        message.put("isComplete", true);
+                        message.put("isDownloading", false);
+                    } else {
+                        message.put("isComplete", false);
+                        message.put("isDownloading", !task.isPaused);
+                    }
+
+                } catch (Exception e) {
+
+                }
+                callbackContext.success(message);
+            }
+        });
+    }
+
+    /**
+     * 暂停下载且不删除文件
+     *
+     * @param url
+     * @param callbackContext
+     */
+    private void sbCancel(String url, CallbackContext callbackContext) {
+        if (TextUtils.isEmpty(url)) {
+            callbackContext.error("The url is null.");
+            return;
+        }
+
+        String key = md5(url);
+        this.pauseProgress(key, true);
+        DownloadManager.getInstance().pause(key);
+        callbackContext.success(url);
+    }
+
+    /**
+     * 取消下载且删除文件
+     *
+     * @param url
+     * @param directory
+     * @param callbackContext
+     */
+    private void sbCancelAndDel(String url, String directory, CallbackContext callbackContext) {
+        if (TextUtils.isEmpty(url) || TextUtils.isEmpty(directory)) {
+            callbackContext.error("The url or fileDirectory is null.");
+            return;
+        }
+
+        String key = md5(url);
+        this.pauseProgress(key, true);
+        DownloadManager.getInstance().cancel(md5(url));
+        this.deleteProgress(url);
+
+        directory = handleFileDirectory(directory);
+        String fileName = getFileName(url);
+        if (directory.endsWith("/")) {
+            directory = directory + fileName;
+        } else {
+            directory = directory + "/" + fileName;
+        }
+        this.deleteFile(new File(directory));
+        callbackContext.success(directory);
+    }
+
+    /**
+     * 取消所有下载
+     *
+     * @param url
+     * @param callbackContext
+     */
+    private void sbCancelAll(String url, CallbackContext callbackContext) {
+        this.pauseAllProgress(true);
+        if (progressMap != null && progressMap.isEmpty()) {
+            for (Map.Entry<String, DownloadTask> entry : progressMap.entrySet()) {
+                this.pauseProgress(entry.getKey(), true);
+                DownloadManager.getInstance().pause(entry.getKey());
+            }
+        }
+        DownloadManager.getInstance().pauseAll();
+        callbackContext.success(url);
+    }
+
+    /**
+     * 清除缓存,先停止所以任务，再清除缓存
+     *
+     * @param directory
+     * @param callbackContext
+     */
+    private void sbClearCache(String directory, CallbackContext callbackContext) {
+        if (TextUtils.isEmpty(directory)) {
+            callbackContext.error("The directory is null.");
+            return;
+        }
+
+        this.pauseAllProgress(true);
+        this.clearProgress();
+        if (progressMap != null && progressMap.isEmpty()) {
+            for (Map.Entry<String, DownloadTask> entry : progressMap.entrySet()) {
+                this.pauseProgress(entry.getKey(), true);
+                DownloadManager.getInstance().cancel(entry.getKey());
+            }
+        }
+        DownloadManager.getInstance().cancelAll();
+        this.clearProgress();
+        this.deleteFiles(new File(handleFileDirectory(directory)));
+        callbackContext.success(directory);
+    }
+
+    /**
+     * 获取缓存大小
+     *
+     * @param directory
+     * @param callbackContext
+     */
+    private void sbCacheSize(String directory, CallbackContext callbackContext) {
+        if (TextUtils.isEmpty(directory)) {
+            callbackContext.error("The directory is null.");
+            return;
+        }
+
+        String fileSize = getCacheFileSize(new File(handleFileDirectory(directory)));
+        callbackContext.success(fileSize);
+    }
+
+    /**
+     * 获取文件本地路径
+     *
+     * @param url
+     * @param directory
+     * @param callbackContext
+     */
+    private void sbCacheFilePath(String url, String directory, CallbackContext callbackContext) {
+        if (TextUtils.isEmpty(directory) || TextUtils.isEmpty(url)) {
+            callbackContext.error("The directory is null.");
+            return;
+        }
+
+        String fileDirectory = this.handleFileDirectory(directory);
+        String fileName = this.getFileName(url);
+
+        String filePath = getFilePath(fileDirectory, fileName);
+        File file = new File(filePath);
+        if (null == file || !file.exists()) {
+            callbackContext.error("The file is not exits.");
+            return;
+        }
+
+        callbackContext.success(getFilePath(directory, fileName));
+    }
+
+    /**
+     * 处理文件路径的问题
      *
      * @param fileDirectory
      * @return
@@ -116,140 +314,33 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
     }
 
     /**
-     * 下载文件
+     * 获取文件名
+     * 文件md5
      *
      * @param url
-     * @param fileDirectory
-     * @param callbackContext
+     * @return
      */
-    private void sbDownload(String url, String fileDirectory, CallbackContext callbackContext) {
-        if (TextUtils.isEmpty(url) || TextUtils.isEmpty(fileDirectory)) {
-            callbackContext.error("url or fileDirectory is null.");
-        } else {
-            callbackContext.success(url);
-            this.download(url, handleFileDirectory(fileDirectory));
-        }
+    private String getFileName(String url) {
+        String fileExtension = url.substring(url.lastIndexOf("."));
+        String fileName = url.substring(url.lastIndexOf("/") + 1, url.lastIndexOf("."));
+        return this.md5(fileName) + fileExtension;
     }
 
     /**
-     * 下载文件信息
+     * 文件路径地址
      *
-     * @param url
-     * @param callbackContext
+     * @param directory
+     * @param fileName
+     * @return
      */
-    private void sbDownloadInfo(final String url, final CallbackContext callbackContext) {
-        if (TextUtils.isEmpty(url)) {
-            callbackContext.error("url is null.");
+    private String getFilePath(String directory, String fileName) {
+        String path;
+        if (directory.endsWith("/")) {
+            path = directory + fileName;
         } else {
-            JSONObject messsage = new JSONObject();
-
-            try {
-                DownloadTask task = getTempProgress(url);
-                double progress = null == task ? 0 : task.getProgress();
-                messsage.put("progress", FORMAT.format(progress));
-                if (progress >= 1.f) {
-                    messsage.put("isComplete", true);
-                    messsage.put("isDownloading", false);
-                } else {
-                    messsage.put("isComplete", false);
-                    messsage.put("isDownloading", DownloadManager.getInstance().isRunning(md5(url)));
-                }
-
-            } catch (Exception e) {
-
-            }
-            callbackContext.success(messsage);
+            path = directory + "/" + fileName;
         }
-    }
-
-
-    /**
-     * 取消单个下载（但不删除任务）
-     *
-     * @param url
-     * @param callbackContext
-     */
-    private void sbCancel(String url, CallbackContext callbackContext) {
-        if (TextUtils.isEmpty(url)) {
-            callbackContext.error("url is null.");
-        } else {
-            String key = md5(url);
-            this.pauseProgress(key, true);
-            DownloadManager.getInstance().pause(key);
-            callbackContext.success(url);
-        }
-    }
-
-    /**
-     * 取消下载任务并删除相关内容
-     *
-     * @param url
-     * @param fileDirectory
-     * @param callbackContext
-     */
-    private void sbCancelAndDel(String url, String fileDirectory, CallbackContext callbackContext) {
-        if (TextUtils.isEmpty(url) || TextUtils.isEmpty(fileDirectory)) {
-            callbackContext.error("url or fileDirectory is null.");
-        } else {
-            String key = md5(url);
-            this.pauseProgress(key, true);
-            DownloadManager.getInstance().cancel(md5(url));
-            this.deleteProgress(url);
-
-            String directory = handleFileDirectory(fileDirectory);
-            String fileName = getFileName(url);
-            if (directory.endsWith("/")) {
-                directory = directory + fileName;
-            } else {
-                directory = directory + "/" + fileName;
-            }
-            this.deleteFile(new File(directory));
-            callbackContext.success(directory);
-        }
-    }
-
-    /**
-     * 取消所有下载
-     *
-     * @param url
-     * @param callbackContext
-     */
-    private void sbCancelAll(String url, CallbackContext callbackContext) {
-        this.pauseAllProgress(true);
-        DownloadManager.getInstance().pauseAll();
-        callbackContext.success(url);
-    }
-
-    /**
-     * 删除缓存,先停止所以任务，再清除缓存
-     *
-     * @param fileDirectory
-     * @param callbackContext
-     */
-    private void sbClearCache(String fileDirectory, CallbackContext callbackContext) {
-        if (TextUtils.isEmpty(fileDirectory)) {
-            callbackContext.error("url or fileDirectory is null.");
-        } else {
-            DownloadManager.getInstance().cancelAll();
-            this.clearProgress();
-            this.deleteFiles(new File(handleFileDirectory(fileDirectory)));
-            callbackContext.success(fileDirectory);
-        }
-    }
-
-    /**
-     * 获取缓存大小
-     *
-     * @param fileDirectory
-     * @param callbackContext
-     */
-    private void sbCacheSize(String fileDirectory, CallbackContext callbackContext) {
-        if (TextUtils.isEmpty(fileDirectory)) {
-            callbackContext.error("url or fileDirectory is null.");
-        } else {
-            String fileSize = getCacheFileSize(new File(handleFileDirectory(fileDirectory)));
-            callbackContext.success(fileSize);
-        }
+        return path;
     }
 
     /**
@@ -265,12 +356,13 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
             return;
         }
 
+        this.pauseProgress(tag, false);
+
         File directoryFile = new File(directory);
         if (!directoryFile.exists()) {
             directoryFile.mkdir();
         }
 
-        this.pauseProgress(tag, false);
         final DownloadRequest request = new DownloadRequest.Builder()
                 .setName(getFileName(url))
                 .setUri(url)
@@ -312,7 +404,7 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
 
             @Override
             public void onDownloadPaused() {
-                syncProgress();
+                //syncProgress();
             }
 
             @Override
@@ -342,29 +434,24 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
     }
 
     /**
-     * 删除目录
+     * 删除目录内的文件
      *
      * @param file
      */
     private void deleteFiles(File file) {
         try {
-            if (null == file || file.exists()) {
+            if (null == file || !file.exists()) {
                 return;
             }
 
             if (!file.isDirectory()) {
-                file.deleteOnExit();
                 return;
             }
 
             File[] fileList = file.listFiles();
             for (File f : fileList) {
                 if (f.isFile()) {
-                    f.deleteOnExit();
-                }
-
-                if (f.isDirectory()) {
-                    deleteFiles(f);
+                    f.delete();
                 }
             }
         } catch (Exception e) {
@@ -380,7 +467,7 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
      */
     private String getCacheFileSize(File file) {
         long size = getFileSizes(file);
-        return FormetFileSize(size);
+        return formatFileSize(size);
     }
 
     /**
@@ -395,9 +482,7 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
         try {
             File[] fileList = f.listFiles();
             for (File file : fileList) {
-                if (file.isDirectory()) {
-                    size = size + getFileSizes(file);
-                } else {
+                if (file.isFile()) {
                     size = size + getFileSize(file);
                 }
             }
@@ -470,12 +555,14 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
      * @param progress
      */
     private void putTempProgress(String url, float progress) {
-        DownloadTask task = progressMap.get(url);
+        String key = md5(url);
+        DownloadTask task = progressMap.get(key);
         if (null == task) {
             task = new DownloadTask(progress, false);
         }
+        task.isPaused = false;
         task.progress = progress;
-        progressMap.put(md5(url), task);
+        progressMap.put(key, task);
     }
 
     /**
@@ -485,11 +572,14 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
      */
     private DownloadTask getTempProgress(String url) {
         String key = md5(url);
+        DownloadTask task;
         if (progressMap.containsKey(key)) {
-            return progressMap.get(key);
+            task = progressMap.get(key);
+        } else {
+            task = new DownloadTask(getProgress(key), !DownloadManager.getInstance().isRunning(key));
         }
 
-        return new DownloadTask(getProgress(key), DownloadManager.getInstance().isRunning(key));
+        return task;
     }
 
     /**
@@ -578,23 +668,12 @@ public class ShinbPluginFileDownload extends CordovaPlugin {
     }
 
     /**
-     * 获取文件名
-     *
-     * @param url
-     * @return
-     */
-    private String getFileName(String url) {
-        return url.substring(url.lastIndexOf("/") + 1);
-    }
-
-
-    /**
      * 转换文件大小
      *
      * @param fileS
      * @return
      */
-    public static String FormetFileSize(long fileS) {
+    public static String formatFileSize(long fileS) {
         DecimalFormat df = new DecimalFormat("#.00");
         String fileSizeString = "";
         String wrongSize = "0 B";
